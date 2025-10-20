@@ -70,7 +70,8 @@ public class GreetingsController {
             Map<String, Object> map = new HashMap<>();
             map.put("msg", "Incorrect username or password");
             map.put("status", 401);
-            return new ResponseEntity<Object>(map, HttpStatus.NOT_FOUND);
+            // Return 401 Unauthorized instead of 404 Not Found
+            return new ResponseEntity<Object>(map, HttpStatus.UNAUTHORIZED);
         }
         // if authentication is successful, set the authentication object in the SecurityContext
         // this allows Spring Security to recognize the user as authenticated for the current request.

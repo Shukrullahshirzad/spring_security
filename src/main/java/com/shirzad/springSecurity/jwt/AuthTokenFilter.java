@@ -31,14 +31,18 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthTokenFilter.class);
 
-    protected void doFileterInternal() {
-        // Implementation of the filter logic goes here
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        logger.debug("AuthTokenFilter: Processing request to extract and validate JWT", request.getRequestURI());
+        logger.debug("AuthTokenFilter: Processing request to extract and validate JWT - {}", request.getRequestURI());
+
+        // Skip JWT authentication for public endpoints (signin)
+        String path = request.getServletPath();
+        if ("/signin".equals(path) || path.startsWith("/api/auth/")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         try {
             // 1. Parse the JWT from the request header
             String jwt = parseJwt(request);
@@ -48,11 +52,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 String username = jwtUtils.getUserNameFromJwtToken(jwt);
 
                 // 3. Load user details using the extracted username
-                // this step retrieves user information such as roles and permissions from the database or another source
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
                 // 4. Create an authentication token using the user details
-                // this token represents the authenticated user in the Spring Security context
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         userDetails,
                         null,
@@ -60,13 +62,10 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 );
                 logger.debug("Roles from JWT: {}", userDetails.getAuthorities());
 
-
                 // 5. Set additional details for the authentication token from the request
-                // this includes information like the remote address and session ID
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
                 // 6. Set the authenticated user in the SecurityContext
-                // this allows Spring Security to recognize the user as authenticated for the current request
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
             }

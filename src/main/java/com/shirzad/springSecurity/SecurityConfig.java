@@ -13,12 +13,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -35,10 +29,8 @@ public class SecurityConfig {
     @Autowired
     private AuthEntryPointJwt unauthorizedHandler;
 
-    @Bean
-    public AuthTokenFilter authenticationJwtTokenFilter() {
-        return new AuthTokenFilter();
-    }
+    // NOTE: removed the field-level injection of AuthTokenFilter to avoid a circular dependency.
+    // The filter will be injected as a parameter into the SecurityFilterChain bean method.
 
     // securityFiterChain explained:
 
@@ -58,7 +50,7 @@ public class SecurityConfig {
     // this is a basic setup and can be further customized based on the application's security needs.
     // the SecurityFilterChain bean is essential for defining how security is applied to incoming HTTP requests.
     @Bean
-    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http, AuthTokenFilter authTokenFilter) throws Exception {
         http.authorizeHttpRequests(
                 (requests) ->
                         requests.requestMatchers("/signin").permitAll() // allow unrestricted access to the signin endpoint
@@ -107,46 +99,12 @@ public class SecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable);
 
         // add the custom JWT authentication filter before the default UsernamePasswordAuthenticationFilter
-        http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
         // build the SecurityFilterChain object
         // build will configure the HttpSecurity object and return a SecurityFilterChain instance
     }
-
-    @Bean
-    public UserDetailsService userDetailsService() {
-        UserDetails user1 = User.withUsername("user1")
-                .password(passwordEncoder().encode("user1"))
-                .roles("USER")
-                .build();
-
-        UserDetails admin = User.withUsername("admin")
-                .password(passwordEncoder().encode("admin"))
-                .roles("ADMIN")
-                .build();
-
-        JdbcUserDetailsManager jdbcUserDetailsManager = new JdbcUserDetailsManager(dataSource);
-
-        // ✅ Add users only if they do not already exist
-        if (!jdbcUserDetailsManager.userExists("user1")) {
-            jdbcUserDetailsManager.createUser(user1);
-        }
-
-        if (!jdbcUserDetailsManager.userExists("admin")) {
-            jdbcUserDetailsManager.createUser(admin);
-        }
-
-        return jdbcUserDetailsManager;
-    }
-
-
-    @Bean
-    PasswordEncoder passwordEncoder(){ // PasswordEncoder bean is used to encode and verify passwords in a secure manner.
-        
-        return new BCryptPasswordEncoder();
-    }
-
 
     // AuthenticationManager bean is responsible for managing authentication processes in a Spring Security application.
     // here we define a bean for AuthenticationManager using the AuthenticationConfiguration provided by Spring Security.
