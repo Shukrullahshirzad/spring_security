@@ -1,25 +1,28 @@
 package com.shirzad.springSecurity;
 
-import com.fasterxml.jackson.databind.annotation.JsonAppend;
+import com.shirzad.springSecurity.jwt.AuthEntryPointJwt;
+import com.shirzad.springSecurity.jwt.AuthTokenFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import javax.sql.DataSource;
-
-import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity // to enable Spring Security's web security support
@@ -28,6 +31,15 @@ public class SecurityConfig {
 
     @Autowired
     DataSource dataSource; // to inject the DataSource bean for database connectivity
+
+    @Autowired
+    private AuthEntryPointJwt unauthorizedHandler;
+
+    @Bean
+    public AuthTokenFilter authenticationJwtTokenFilter() {
+        return new AuthTokenFilter();
+    }
+
     // securityFiterChain explained:
 
     // SecurityFilterChain bean defines the security filter chain for the application and configures security settings.
@@ -48,16 +60,55 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests(
-                (requests) -> requests.requestMatchers("/springSecurity-console/**").permitAll().anyRequest().authenticated()
+                (requests) ->
+                        requests.requestMatchers("/signin").permitAll() // allow unrestricted access to the signin endpoint
+                                .anyRequest().authenticated() // require authentication for any other request
         );
         // make the session stateless means that the server does not store any session information about the client between requests.
         // each request from the client must contain all the information needed for the server to understand and process it.
         // this is commonly used in RESTful APIs where each request is independent and self-contained.
         // stateless sessions can improve scalability and performance since the server does not need to manage session data.
         // however, it also means that the client must handle authentication and state management, often through tokens (like JWT) or other mechanisms.
-        http.sessionManagement((session) -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+        http.sessionManagement((
+                session) ->
+                    session.sessionCreationPolicy(
+                        SessionCreationPolicy.STATELESS)
+        );
+
+        http.exceptionHandling(
+                exception ->
+                        exception.authenticationEntryPoint(unauthorizedHandler));
+
         // http.formLogin(withDefaults());
-        http.httpBasic(withDefaults());
+
+        // http.header explained:
+        // http.headers() is a method used to configure HTTP headers in a Spring Security application.
+        // it allows you to customize various security-related headers that are included in HTTP responses.
+        // these headers help enhance the security of web applications by providing protection against common vulnerabilities.
+        // one of the common configurations is setting the X-Frame-Options header to control whether the application can
+        // be embedded in an iframe. in this case, we are setting the frame options to "sameOrigin", which means
+        // that the application can only be embedded in an iframe if the parent page is from the same origin (domain)
+        // as the application itself. this helps prevent clickjacking attacks.
+        // you can customize other headers as well, such as Content-Security-Policy, X-Content-Type-Options, etc.
+        // clickjacking is a malicious technique where an attacker tricks a user into clicking on something different
+        // from what the user perceives, potentially revealing confidential information or allowing unauthorized actions.
+        // by setting the X-Frame-Options header to "sameOrigin", we ensure that our application cannot be embedded
+        // in an iframe on a different domain, thereby mitigating the risk of clickjacking attacks
+        http.headers(
+                headers -> headers.frameOptions(
+                        HeadersConfigurer.FrameOptionsConfig::sameOrigin
+                )
+        );
+
+        // disable CSRF protection. CSRF protection is a security measure that helps prevent unauthorized
+        // commands from being transmitted from a user that the web application trusts.
+        // in stateless applications that use tokens (like JWT) for authentication, CSRF protection is often unnecessary.
+        http.csrf(AbstractHttpConfigurer::disable);
+
+        // add the custom JWT authentication filter before the default UsernamePasswordAuthenticationFilter
+        http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+
         return http.build();
         // build the SecurityFilterChain object
         // build will configure the HttpSecurity object and return a SecurityFilterChain instance
@@ -65,35 +116,48 @@ public class SecurityConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        UserDetails user1 = User.withUsername( "user1")
-                .password(passwordEncoder().encode("user1")) // {noop} indicates that no encoding is applied to the password
+        UserDetails user1 = User.withUsername("user1")
+                .password(passwordEncoder().encode("user1"))
                 .roles("USER")
                 .build();
 
-        UserDetails admin = User.withUsername( "admin")
-                .password(passwordEncoder().encode("admin")) // {noop} indicates that no encoding is applied to the password
+        UserDetails admin = User.withUsername("admin")
+                .password(passwordEncoder().encode("admin"))
                 .roles("ADMIN")
                 .build();
-        // JdbcUserDetailsManager explained:
 
-        // JdbcUserDetailsManager is a class provided by Spring Security that implements the UserDetailsService interface.
-        // it is used to retrieve user details (like username, password, roles, etc.) from a relational database using JDBC (Java Database Connectivity).
-        // it allows you to manage user authentication and authorization by storing user information in database tables.
-        // it provides methods to create, update, delete, and retrieve user details from the database.
-        // it is commonly used in applications that require persistent user storage and management.
-        // to use JdbcUserDetailsManager, you typically need to configure a DataSource that connects to your database and set up the necessary database schema (tables) to store user information. the .properties file contains the database connection details. it will be treated as data source bean. then you can create an instance of JdbcUserDetailsManager and use it as your UserDetailsService implementation.
-        JdbcUserDetailsManager jdbcUserDetailsManager
-                = new JdbcUserDetailsManager(dataSource);
-        jdbcUserDetailsManager.createUser(user1); // this line adds the user1 to the database
-        jdbcUserDetailsManager.createUser(admin);
+        JdbcUserDetailsManager jdbcUserDetailsManager = new JdbcUserDetailsManager(dataSource);
+
+        // ✅ Add users only if they do not already exist
+        if (!jdbcUserDetailsManager.userExists("user1")) {
+            jdbcUserDetailsManager.createUser(user1);
+        }
+
+        if (!jdbcUserDetailsManager.userExists("admin")) {
+            jdbcUserDetailsManager.createUser(admin);
+        }
+
         return jdbcUserDetailsManager;
-        //return new InMemoryUserDetailsManager(user1, admin);
     }
+
 
     @Bean
     PasswordEncoder passwordEncoder(){ // PasswordEncoder bean is used to encode and verify passwords in a secure manner.
         
         return new BCryptPasswordEncoder();
     }
+
+
+    // AuthenticationManager bean is responsible for managing authentication processes in a Spring Security application.
+    // here we define a bean for AuthenticationManager using the AuthenticationConfiguration provided by Spring Security.
+    // the AuthenticationManager is a core component that handles the authentication of users based on their credentials.
+    // it is used to verify user credentials (like username and password) during the authentication process.
+    // by defining this bean, we make the AuthenticationManager available for injection into other components of the application,
+    // such as controllers or services that require authentication functionality.
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration builder) throws Exception {
+        return builder.getAuthenticationManager();
+    }
+
 
 }
